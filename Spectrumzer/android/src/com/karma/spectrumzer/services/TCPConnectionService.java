@@ -5,14 +5,18 @@ import android.content.Intent;
 import android.os.IBinder;
 import android.util.Log;
 
+import com.karma.spectrumzer.models.ByteUtils;
+
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketException;
+import java.util.ArrayList;
 
 public class TCPConnectionService extends Service {
     private static final String LOG_TAG = "Spectrumzer";
     TCPConnectionBinder _binder;
-    private TCPConnection _tcpConnection;
+    private ServerThread _tcpConnection;
     private int _port = 8090;
 
     public ITCPConnectionListener getListener() {
@@ -39,7 +43,7 @@ public class TCPConnectionService extends Service {
             _tcpConnection = null;
         }
         _port = port;
-        _tcpConnection = new TCPConnection();
+        _tcpConnection = new ServerThread(_port);
         _tcpConnection.start();
     }
 
@@ -57,41 +61,127 @@ public class TCPConnectionService extends Service {
         return _binder;
     }
 
-    private class TCPConnection extends Thread {
-        ServerSocket server;
+    private class ServerThread extends Thread {
+        ServerSocket _server;
+        ArrayList<ClientThread> _clients;
+        int _maxClient = 1;
+        int _port;
+
+        public ServerThread(int port) {
+            _port = port;
+            _clients = new ArrayList<ClientThread>();
+        }
 
         @Override
         public void run() {
             Log.d(LOG_TAG, "TCPConnectionService: TCPConnection: run");
+
             try {
-                server = new ServerSocket(_port);
-                System.out.println("伺服器已啟動 !");
+                _server = new ServerSocket(_port);
+                //server accept loop, looking for client forever but idle while reaches max client.
+                while (true) {
+                    if (isInterrupted())
+                        throw new InterruptedException();
 
-                while (!isInterrupted()) {
+                    for (ClientThread ct : _clients) {
+                        //connection is dead.
+                        if (!ct.isAlive()) {
+                            _clients.remove(ct);
+                        }
+                    }
 
-                    Socket socket = server.accept();
-                    System.out.println("取得連線 : InetAddress = "
-                            + socket.getInetAddress());
-                    // TimeOut時間
-                    socket.setSoTimeout(15000);
-                    readFromClient(socket);
-                    socket.close();
+                    //idle while reaches max client.
+                    if (_clients.size() == _maxClient) {
+                        continue;
+                    }
+
+                    //looking for client
+                    Socket socket = _server.accept();
+                    Log.d(LOG_TAG, "TCPConnectionService: TCPConnection:connected: address: "
+                            + socket.getInetAddress() + ", port: " + socket.getPort());
+                    startClientConnectionThread(socket);
                 }
-            } catch (java.io.IOException e) {
-                Log.e(LOG_TAG, e.getMessage());
+            } catch (Exception e) {
+                e.printStackTrace();
+            } finally {
+                closeServer();
             }
         }
 
-        void readFromClient(Socket socket) throws IOException {
-            java.io.BufferedInputStream in = new java.io.BufferedInputStream(socket.getInputStream());
-            int heaerLength = 14;
+        private void startClientConnectionThread(Socket socket) {
+            Log.d(LOG_TAG, "TCPConnectionService: TCPConnection: startClientConnectionThread");
+            ClientThread clientThread = new ClientThread(socket);
+            clientThread.start();
+            _clients.add(clientThread);
+        }
+
+        private void closeServer() {
+            if (_server != null) {
+                try {
+                    _server.close();
+                    _server = null;
+                    Log.d(LOG_TAG, "TCPConnectionService: TCPConnection: closeServer");
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+
+    }
+
+    private class ClientThread extends Thread {
+        private Socket _client;
+
+        public ClientThread(Socket _client) {
+            this._client = _client;
+        }
+
+        @Override
+        public void run() {
+            try {
+                _client.setSoTimeout(15000);
+                java.io.BufferedInputStream in = new java.io.BufferedInputStream(_client.getInputStream());
+                while (true) {
+                    if (isInterrupted())
+                        throw new InterruptedException();
+                    readFromClient(in);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            } finally {
+                try {
+                    _client.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+
+        void readFromClient(java.io.BufferedInputStream in) throws Exception {
+
 
             //read header
-            //TODO
             //try read header length(14) of bytes from stream
-            //get total length of frameData
-            //data payload length = total length - header length(14)
+            final int headerLength = 14;
+            byte[] headerBytes = new byte[headerLength];
+            int totalReaded = 0;
+            do {
+                int readed = in.read(headerBytes, totalReaded, headerLength - totalReaded);
+                totalReaded += readed;
+            } while (totalReaded < headerLength);
 
+            //get total length of frameData
+            //TODO
+            //headers       size
+            //int size      4
+            //byte type     1
+            //byte flag     1
+            //long pts      8
+            //byte[] _data  n
+            //data payload length = total length - header length(14)
+            //TODO
+            int totalSize = ByteUtils.bytesToInt(headerBytes);
+            int dataPayloadSize = totalSize - headerLength;
 
             //read data payload
             //TODO
@@ -107,11 +197,9 @@ public class TCPConnectionService extends Service {
             {
                 data += new String(b, 0, length);
             }
-            System.out.println("我取得的值:" + data);
+            Log.d(LOG_TAG, "我取得的值:" + data);
             in.close();
             in = null;
         }
-
-
     }
 }
