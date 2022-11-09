@@ -14,12 +14,11 @@ namespace SpectrumzerServer
     {
         static void Main(string[] args)
         {
-            NetworkDiscoveryManager networkDiscoveryManager = new NetworkDiscoveryManager();
-            networkDiscoveryManager.StartUDPMonitor();
-
-            
+            NetworkDiscoveryManager.Instance.StartUDPMonitor();
 
             Console.ReadKey();
+
+
         }
 
     }

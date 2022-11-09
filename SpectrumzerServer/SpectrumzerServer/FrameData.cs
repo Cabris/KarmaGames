@@ -39,6 +39,12 @@ namespace SpectrumzerServer
             return msgByte;
         }
 
+        //return frameData: frame byte array with
+        //frame size in byte, size=4
+        //type in byte, size=1
+        //flag in byte, size=1
+        //presentationTimeStamp in log, size=8
+        //data payload, size=frameData.length - 10
         public byte[] ToByteArray()
         {
             int totalFrameSizeInByte = 4 + 1 + 1 + 8 + _data.Length;
@@ -63,21 +69,23 @@ namespace SpectrumzerServer
             return frameData;
         }
 
+        //param frameData: frame byte array with
+        //type in byte, size=1
+        //flag in byte, size=1
+        //presentationTimeStamp in log, size=8
+        //data payload, size=frameData.length - 10
         public static FrameData FromByteArray(byte[] frameData)
         {
             using (MemoryStream ms = new MemoryStream(frameData))
             {
                 try
                 {
-                    byte[] frameSizeInBytes = new byte[4];
-                    ms.Read(frameSizeInBytes, 0, frameSizeInBytes.Length);//total length, size=4
-                    int totalFrameSizeInByte = BitConverter.ToInt32(frameSizeInBytes, 0);
                     byte type = (byte)ms.ReadByte();//type, size=1
                     byte flag = (byte)ms.ReadByte();//flag, size=1
                     byte[] tpsInBytes = new byte[8];
                     ms.Write(tpsInBytes, 0, tpsInBytes.Length);//presentation timestamp, size=8
                     long presentationTimeStamp = BitConverter.ToInt64(tpsInBytes, 0);
-                    int dataSize = totalFrameSizeInByte - 4 - 1 - 1 - 8;
+                    int dataSize = frameData.Length - 1 - 1 - 8;
                     if (dataSize < 0)
                     {
                         throw new Exception(string.Format("frame type: {0}, flag: {1}, tps: {2}" +
@@ -102,6 +110,7 @@ namespace SpectrumzerServer
                     return null;
                 }
             }
+
 
         }
     }

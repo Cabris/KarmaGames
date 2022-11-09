@@ -26,6 +26,12 @@ public class FrameData {
         return msgByte;
     }
 
+    //return frameData: frame byte array with
+    //frame size in byte, size=4
+    //type in byte, size=1
+    //flag in byte, size=1
+    //presentationTimeStamp in log, size=8
+    //data payload, size=frameData.length - 10
     public byte[] ToByteArray() {
         int totalFrameSizeInByte = 4 + 1 + 1 + 8 + _data.length;
         byte[] frameData = new byte[totalFrameSizeInByte];
@@ -40,18 +46,20 @@ public class FrameData {
         return frameData;
     }
 
+    //param frameData: frame byte array with
+    //type in byte, size=1
+    //flag in byte, size=1
+    //presentationTimeStamp in log, size=8
+    //data payload, size=frameData.length - 10
     public static FrameData FromByteArray(byte[] frameData) {
-        byte[] totalSizeInByte = new byte[4];
-        System.arraycopy(frameData, 0, totalSizeInByte, 0, totalSizeInByte.length);
-        int totalSize = ByteUtils.bytesToInt(totalSizeInByte);
-        byte type = frameData[4];//type, size=1
-        byte flag = frameData[5];//flag, size=1
+        byte type = frameData[0];//type, size=1
+        byte flag = frameData[1];//flag, size=1
         byte[] timeStamp = new byte[8];
-        System.arraycopy(frameData, 6, timeStamp, 0, timeStamp.length);
+        System.arraycopy(frameData, 2, timeStamp, 0, timeStamp.length);
         long presentationTimeStamp = ByteUtils.bytesToLong(timeStamp);
-        int dataLength = frameData.length - 14;
+        int dataLength = frameData.length - 10;
         byte[] data = new byte[dataLength];
-        System.arraycopy(frameData, 14, data, 0, data.length);
+        System.arraycopy(frameData, 10, data, 0, data.length);
         FrameData frame = new FrameData();
 
         frame._type = type;

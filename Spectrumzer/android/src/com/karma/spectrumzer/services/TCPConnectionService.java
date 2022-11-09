@@ -6,7 +6,9 @@ import android.os.IBinder;
 import android.util.Log;
 
 import com.karma.spectrumzer.models.ByteUtils;
+import com.karma.spectrumzer.models.FrameData;
 
+import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -74,7 +76,7 @@ public class TCPConnectionService extends Service {
 
         @Override
         public void run() {
-            Log.d(LOG_TAG, "TCPConnectionService: TCPConnection: run");
+            Log.d(LOG_TAG, "TCPConnectionService: ServerThread: run");
 
             try {
                 _server = new ServerSocket(_port);
@@ -97,7 +99,7 @@ public class TCPConnectionService extends Service {
 
                     //looking for client
                     Socket socket = _server.accept();
-                    Log.d(LOG_TAG, "TCPConnectionService: TCPConnection:connected: address: "
+                    Log.d(LOG_TAG, "TCPConnectionService: ServerThread:accept: address: "
                             + socket.getInetAddress() + ", port: " + socket.getPort());
                     startClientConnectionThread(socket);
                 }
@@ -109,7 +111,7 @@ public class TCPConnectionService extends Service {
         }
 
         private void startClientConnectionThread(Socket socket) {
-            Log.d(LOG_TAG, "TCPConnectionService: TCPConnection: startClientConnectionThread");
+            Log.d(LOG_TAG, "TCPConnectionService: ServerThread: startClientConnectionThread");
             ClientThread clientThread = new ClientThread(socket);
             clientThread.start();
             _clients.add(clientThread);
@@ -120,7 +122,7 @@ public class TCPConnectionService extends Service {
                 try {
                     _server.close();
                     _server = null;
-                    Log.d(LOG_TAG, "TCPConnectionService: TCPConnection: closeServer");
+                    Log.d(LOG_TAG, "TCPConnectionService: ServerThread: closeServer");
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -138,9 +140,10 @@ public class TCPConnectionService extends Service {
 
         @Override
         public void run() {
+            java.io.BufferedInputStream in = null;
             try {
                 _client.setSoTimeout(15000);
-                java.io.BufferedInputStream in = new java.io.BufferedInputStream(_client.getInputStream());
+                in = new java.io.BufferedInputStream(_client.getInputStream());
                 while (true) {
                     if (isInterrupted())
                         throw new InterruptedException();
@@ -150,6 +153,9 @@ public class TCPConnectionService extends Service {
                 e.printStackTrace();
             } finally {
                 try {
+                    if (in != null) {
+                        in.close();
+                    }
                     _client.close();
                 } catch (IOException e) {
                     e.printStackTrace();
@@ -157,49 +163,42 @@ public class TCPConnectionService extends Service {
             }
         }
 
-        void readFromClient(java.io.BufferedInputStream in) throws Exception {
-
-
-            //read header
-            //try read header length(14) of bytes from stream
-            final int headerLength = 14;
-            byte[] headerBytes = new byte[headerLength];
+        void readBytesFromInputStream(BufferedInputStream src, byte[] dst, int offset, int len) throws IOException {
             int totalReaded = 0;
             do {
-                int readed = in.read(headerBytes, totalReaded, headerLength - totalReaded);
+                int readed = src.read(dst, totalReaded, len - totalReaded);
                 totalReaded += readed;
-            } while (totalReaded < headerLength);
+            } while (totalReaded < len);
+        }
+
+        void readFromClient(BufferedInputStream in) throws Exception {
+            //read frame size
+            //try read the first 4 bytes to get thr frame size.
+            final int sizeBytesLen = 4;
+            byte[] sizeBytes = new byte[sizeBytesLen];
+            readBytesFromInputStream(in, sizeBytes, 0, sizeBytesLen);
+            int totalSize = ByteUtils.bytesToInt(sizeBytes);
+            Log.d(LOG_TAG, "TCPConnectionService: ClientThread: readFromClient: totalSize: " + totalSize);
 
             //get total length of frameData
-            //TODO
-            //headers       size
+            //members       size
             //int size      4
+
+            //need to read the following:
             //byte type     1
             //byte flag     1
             //long pts      8
             //byte[] _data  n
-            //data payload length = total length - header length(14)
-            //TODO
-            int totalSize = ByteUtils.bytesToInt(headerBytes);
-            int dataPayloadSize = totalSize - headerLength;
-
-            //read data payload
-            //TODO
-            //try read data payload length of bytes from stream
-            //FrameData.FromByteArray()
-            //_listener.OnReceiveFrameFromClient()
-
-
-            byte[] b = new byte[1024];
-            String data = "";
-            int length;
-            while ((length = in.read(b)) > 0)// <=0的話就是結束了
-            {
-                data += new String(b, 0, length);
-            }
-            Log.d(LOG_TAG, "我取得的值:" + data);
-            in.close();
-            in = null;
+            //read length = totalSize - int size in bytes(4)
+            int frameSize = totalSize - 4;
+            byte[] frameBytes = new byte[frameSize];
+            Log.d(LOG_TAG, "TCPConnectionService: ClientThread: readFromClient: frameSize: " + frameSize);
+            readBytesFromInputStream(in, frameBytes, 0, frameBytes.length);
+            FrameData frameData = FrameData.FromByteArray(frameBytes);
+            Log.d(LOG_TAG, "TCPConnectionService: ClientThread: readFromClient: frameData._presentationTimeStamp: "
+                    + frameData._presentationTimeStamp);
+            if (_listener != null)
+                _listener.OnReceiveFrameFromClient(frameData);
         }
     }
 }
