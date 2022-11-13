@@ -71,7 +71,7 @@ namespace SpectrumzerServer
             }
             catch (Exception e)
             {
-                Debug.WriteLine(e.Message);
+                Debug.WriteLine(e.Message + ", " + e.StackTrace);
             }
             finally
             {
@@ -79,6 +79,7 @@ namespace SpectrumzerServer
                 //receiveTcpframes?.Cancel();
                 heartBeatTimer?.Stop();
                 heartBeatTimer?.Dispose();
+                Debug.WriteLine("TCPConnection: Run: exit.");
             }
         }
 
@@ -89,21 +90,23 @@ namespace SpectrumzerServer
                 token.ThrowIfCancellationRequested();
 
                 string msg = ReadUTF8StringFromServer();
-                Debug.WriteLine("Start TCP Connection: HandleReadFromServer: " + msg);
+                Debug.WriteLine("TCPConnection: HandleReadFromServer: " + msg);
 
-
-                //String CONNECTED = "CONNECTED: " + DateTimeOffset.Now.ToUnixTimeMilliseconds();
-                //NetworkStream ns = _tcpClient.GetStream();
-
-
-                //Loon.Java.DataOutputStream dataOutputStream = new Loon.Java.DataOutputStream(ns);
-                //dataOutputStream.WriteUTF(CONNECTED);
+                var packet = JsonConvert.DeserializeObject<TCP_Packet>(msg);
+                if (packet != null)
+                {
+                    TCP_PacketType packetType = (TCP_PacketType)packet._type;
+                    if (packetType == TCP_PacketType.ClientHeartBeatRes)
+                    {
+                        Debug.WriteLine("TCPConnection: HandleReadFromServer: packetType: " + packetType);
+                    }
+                }
             }
         }
 
         private void StartTCPConnection(IPAddress peerAddress, int peerPort)
         {
-            Debug.WriteLine("Start TCP Connection: peerAddress: " + peerAddress.ToString() + ", peerPort: " + peerPort);
+            Debug.WriteLine("TCPConnection: StartTCPConnection: peerAddress: " + peerAddress.ToString() + ", peerPort: " + peerPort);
             IPEndPoint ipe = new IPEndPoint(peerAddress, peerPort);
             //try start connection to peer...
             TryCreateTcpConnection(ipe);//block
@@ -111,9 +114,9 @@ namespace SpectrumzerServer
             string msg = ReadUTF8StringFromServer();
             if (msg != Utility.CONNECTED)
             {
-                throw new Exception("Server not response normal when connected.");
+                throw new Exception("TCPConnection: StartTCPConnection: Server not response normal when connected.");
             }
-            Debug.WriteLine("Start TCP Connection: Connection completed!");
+            Debug.WriteLine("TCPConnection: StartTCPConnection: Start TCP Connection: Connection completed!");
 
         }
 
@@ -122,7 +125,7 @@ namespace SpectrumzerServer
             NetworkStream ns = _tcpClient.GetStream();
             Loon.Java.DataInputStream dataInputStream = new Loon.Java.DataInputStream(ns);
             string msg = dataInputStream.ReadUTF();
-            Debug.WriteLine(string.Format("Server said: {0}", msg));
+            Debug.WriteLine(string.Format("TCPConnection:ReadUTF8StringFromServer: Server said: {0}", msg));
             return msg;
         }
 
@@ -131,7 +134,7 @@ namespace SpectrumzerServer
             NetworkStream ns = _tcpClient.GetStream();
             Loon.Java.DataOutputStream dataOutputStream = new Loon.Java.DataOutputStream(ns);
             dataOutputStream.WriteUTF(msg);
-            Debug.WriteLine(string.Format("Client said: {0}", msg));
+            Debug.WriteLine(string.Format("TCPConnection: WriteUTF8StringToServer: Client said: {0}", msg));
         }
 
         private void TryCreateTcpConnection(IPEndPoint ipe)
@@ -142,7 +145,7 @@ namespace SpectrumzerServer
                 bool retryCreateConnection = true;
                 while (retryCreateConnection)
                 {
-                    Debug.WriteLine(string.Format("Try to connect to peer {0}", ipe.Address.ToString()));
+                    Debug.WriteLine(string.Format("TCPConnection: TryCreateTcpConnection: Try to connect to peer {0}", ipe.Address.ToString()));
                     _tcpClient.Connect(ipe);//block util connected or error
                     if (_tcpClient.Connected) //connected!
                     {
@@ -150,13 +153,10 @@ namespace SpectrumzerServer
                     }
                     else
                     {
-                        Debug.WriteLine(string.Format("TCP Connection to peer {0} failed, retry.", ipe.Address.ToString()));
+                        Debug.WriteLine(string.Format("TCPConnection: TryCreateTcpConnection: TCP Connection to peer {0} failed, retry.", ipe.Address.ToString()));
                         continue;
                     }
                 }
-
-
-
             }
             catch (Exception e)
             {
@@ -182,31 +182,20 @@ namespace SpectrumzerServer
 
         void OnHeartBeatEvent(object sender, ElapsedEventArgs e)
         {
-            IPEndPoint iPEndPoint = (IPEndPoint)_tcpClient.Client.LocalEndPoint;
             ClientHeartBeat heartBeat = new ClientHeartBeat()
             {
-                client_ip = iPEndPoint.Address.ToString(),
-                client_port = iPEndPoint.Port,
                 timeout = _heartBeatTimeout
             };
-            string msg = JsonConvert.SerializeObject(heartBeat);
-
-            FrameData frame = new FrameData()
+            string hbJson = JsonConvert.SerializeObject(heartBeat);
+            TCP_Packet packet = new TCP_Packet()
             {
-                _type = FrameData.TYPE_JSON,
-                _flag = FrameData.FLAG_HB,
-                _presentationTimeStamp = DateTimeOffset.Now.ToUnixTimeSeconds(),
-                _data = FrameData.JsonStringToBytes(msg)
+                _type = (int)TCP_PacketType.ClientHeartBeatReq,
+                _presentationTimeStamp = DateTimeOffset.Now.ToUnixTimeMilliseconds(),
+                _json = hbJson
             };
-            byte[] frameBytes = frame.ToByteArray();
-            //_tcpSendQueue.Enqueue(frameBytes);
-        }
 
-        private class ClientHeartBeat
-        {
-            public string client_ip;
-            public int client_port;
-            public int timeout;
+            string packetJson = JsonConvert.SerializeObject(packet);
+            WriteUTF8StringToServer(packetJson);
         }
 
         /*

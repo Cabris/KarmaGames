@@ -46,7 +46,7 @@ namespace SpectrumzerServer
                 byte[] buf = UDPrece.Receive(ref endpoint);
                 string msg = Encoding.UTF8.GetString(buf);
 
-                Debug.WriteLine(msg);
+                //Debug.WriteLine(msg);
                 var serverInfo = JsonConvert.DeserializeObject<ServerInfo>(msg);
                 if (serverInfo != null && IsVaidRequest(serverInfo))
                 {

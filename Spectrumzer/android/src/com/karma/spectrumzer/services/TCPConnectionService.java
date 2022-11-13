@@ -5,12 +5,12 @@ import android.content.Intent;
 import android.os.IBinder;
 import android.util.Log;
 
-import com.karma.spectrumzer.models.ByteUtils;
-import com.karma.spectrumzer.models.FrameData;
+import com.google.gson.Gson;
+import com.google.gson.JsonSyntaxException;
+import com.karma.spectrumzer.models.TCP_Packet;
+import com.karma.spectrumzer.models.TCP_PacketType;
 import com.karma.spectrumzer.utility.Utility;
 
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -171,6 +171,29 @@ public class TCPConnectionService extends Service {
                 if (isInterrupted())
                     throw new InterruptedException();
                 String msg = readUTF8StringFromClient();
+
+                try {
+                    Gson gson = new Gson();
+                    TCP_Packet packet = gson.fromJson(msg, TCP_Packet.class);
+                    if (packet != null) {
+                        Log.d(LOG_TAG, "TCPConnectionService: ClientThread: handleReadFromClient: msg readed, msg: " + msg);
+                        TCP_PacketType type = TCP_PacketType.GetValue(packet._type);
+                        Log.d(LOG_TAG, "TCPConnectionService: ClientThread: handleReadFromClient: msg readed, type: " + type);
+                        if (type == TCP_PacketType.ClientHeartBeatReq) {
+                            TCP_Packet packetRes = new TCP_Packet();
+                            packetRes._type = TCP_PacketType.ClientHeartBeatRes.getValue();
+                            packetRes._presentationTimeStamp = System.currentTimeMillis();
+                            packetRes._json = "";
+                            String packetResJson = gson.toJson(packetRes);
+                            writeUTF8StringToClient(packetResJson);
+                        }
+                    }
+                } catch (JsonSyntaxException e) {
+                    Log.e(LOG_TAG, "TCPConnectionService: ClientThread: handleReadFromClient: msg is not a TCP_Packet json!! msg: " + msg);
+                    e.printStackTrace();
+                }
+
+
                 if (_listener != null) {
                     _listener.OnReceiveUTF8StringFromClient(msg);
                 }
@@ -189,6 +212,7 @@ public class TCPConnectionService extends Service {
             return msg;
         }
 
+        /*
         void readBytesFromInputStream(BufferedInputStream src, byte[] dst, int offset, int len) throws IOException {
             int totalReaded = 0;
             do {
@@ -226,6 +250,6 @@ public class TCPConnectionService extends Service {
             if (_listener != null)
                 _listener.OnReceiveFrameFromClient(frameData);
         }
-
+*/
     }
 }
