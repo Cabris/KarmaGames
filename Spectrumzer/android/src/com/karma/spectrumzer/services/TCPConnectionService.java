@@ -7,12 +7,15 @@ import android.util.Log;
 
 import com.karma.spectrumzer.models.ByteUtils;
 import com.karma.spectrumzer.models.FrameData;
+import com.karma.spectrumzer.utility.Utility;
 
 import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.net.SocketException;
 import java.util.ArrayList;
 
 public class TCPConnectionService extends Service {
@@ -71,7 +74,7 @@ public class TCPConnectionService extends Service {
 
         public ServerThread(int port) {
             _port = port;
-            _clients = new ArrayList<ClientThread>();
+            _clients = new ArrayList<>();
         }
 
         @Override
@@ -133,6 +136,8 @@ public class TCPConnectionService extends Service {
 
     private class ClientThread extends Thread {
         private Socket _client;
+        DataInputStream _inputStream = null;
+        DataOutputStream _outputStream = null;
 
         public ClientThread(Socket _client) {
             this._client = _client;
@@ -140,27 +145,48 @@ public class TCPConnectionService extends Service {
 
         @Override
         public void run() {
-            java.io.BufferedInputStream in = null;
+
             try {
                 _client.setSoTimeout(15000);
-                in = new java.io.BufferedInputStream(_client.getInputStream());
-                while (true) {
-                    if (isInterrupted())
-                        throw new InterruptedException();
-                    readFromClient(in);
-                }
+                _inputStream = new DataInputStream(_client.getInputStream());
+                _outputStream = new DataOutputStream(_client.getOutputStream());
+                writeUTF8StringToClient(Utility.CONNECTED);
+                handleReadFromClient();
             } catch (Exception e) {
                 e.printStackTrace();
             } finally {
                 try {
-                    if (in != null) {
-                        in.close();
+                    if (_inputStream != null) {
+                        _inputStream.close();
                     }
                     _client.close();
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
             }
+        }
+
+        private void handleReadFromClient() throws Exception {
+            while (true) {
+                if (isInterrupted())
+                    throw new InterruptedException();
+                String msg = readUTF8StringFromClient();
+                if (_listener != null) {
+                    _listener.OnReceiveUTF8StringFromClient(msg);
+                }
+            }
+        }
+
+        void writeUTF8StringToClient(String string) throws IOException {
+            //String connected = Utility.CONNECTED + ": " + System.currentTimeMillis();
+            _outputStream.writeUTF(string);
+            Log.d(LOG_TAG, "TCPConnectionService: ClientThread: writeUTF8StringToClient: " + string);
+        }
+
+        String readUTF8StringFromClient() throws IOException {
+            String msg = _inputStream.readUTF();
+            Log.d(LOG_TAG, "TCPConnectionService: ClientThread: readUTF8StringFromClient: " + msg);
+            return msg;
         }
 
         void readBytesFromInputStream(BufferedInputStream src, byte[] dst, int offset, int len) throws IOException {
@@ -171,7 +197,7 @@ public class TCPConnectionService extends Service {
             } while (totalReaded < len);
         }
 
-        void readFromClient(BufferedInputStream in) throws Exception {
+        void readFrameFromClient(BufferedInputStream in) throws Exception {
             //read frame size
             //try read the first 4 bytes to get thr frame size.
             final int sizeBytesLen = 4;
@@ -200,5 +226,6 @@ public class TCPConnectionService extends Service {
             if (_listener != null)
                 _listener.OnReceiveFrameFromClient(frameData);
         }
+
     }
 }

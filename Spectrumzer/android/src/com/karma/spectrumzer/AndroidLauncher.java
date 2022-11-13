@@ -15,6 +15,7 @@ import com.karma.spectrumzer.services.NetworkDiscoveryBinder;
 import com.karma.spectrumzer.services.NetworkDiscoveryService;
 import com.karma.spectrumzer.services.TCPConnectionBinder;
 import com.karma.spectrumzer.services.TCPConnectionService;
+import com.karma.spectrumzer.utility.Utility;
 
 public class AndroidLauncher extends AndroidApplication {
     NetworkDiscoveryBinder _networkDiscoveryServiceBinder;
@@ -41,7 +42,7 @@ public class AndroidLauncher extends AndroidApplication {
             public void onServiceConnected(ComponentName name, IBinder service) {
                 _tcpConnectionBinder = (TCPConnectionBinder) service;
                 _isTcpServiceBinded = true;
-
+                _tcpConnectionBinder.startListeningClient(Utility.TCP_PORT);
                 Log.d(LOG_TAG, "onServiceConnected: _isTcpServiceBinded: " + _isTcpServiceBinded);
             }
 
@@ -49,6 +50,7 @@ public class AndroidLauncher extends AndroidApplication {
             public void onServiceDisconnected(ComponentName name) {
                 _tcpConnectionBinder = null;
                 _isTcpServiceBinded = false;
+                _tcpConnectionBinder.stopListeningClient();
                 Log.d(LOG_TAG, "onServiceDisconnected: _isTcpServiceBinded: " + _isTcpServiceBinded);
             }
         };
@@ -66,12 +68,13 @@ public class AndroidLauncher extends AndroidApplication {
                 _isNetworkDiscoveryServiceBinded = true;
                 _networkDiscoveryServiceBinder.setListener(_networkDiscoveryListener);
                 _networkDiscoveryServiceBinder.setAppContext(AndroidLauncher.this);
-                _networkDiscoveryServiceBinder.startNetworkDiscovery();
+                _networkDiscoveryServiceBinder.startNetworkDiscovery(Utility.DISCOVERY_PORT);
                 Log.d(LOG_TAG, "onServiceConnected: _isNetworkDiscoveryServiceBinded: " + _isNetworkDiscoveryServiceBinded);
             }
 
             @Override
             public void onServiceDisconnected(ComponentName name) {
+                _networkDiscoveryServiceBinder.stopNetworkDiscovery();
                 _networkDiscoveryServiceBinder.setListener(null);
                 _networkDiscoveryServiceBinder.setAppContext(null);
                 _networkDiscoveryServiceBinder = null;

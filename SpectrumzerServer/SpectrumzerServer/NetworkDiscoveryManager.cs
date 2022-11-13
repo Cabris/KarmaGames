@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -32,7 +33,7 @@ namespace SpectrumzerServer
             Thread receThread = new Thread(new ThreadStart(StartReceiveUDPDataFromBroacast));
             receThread.IsBackground = true;
             receThread.Start();
-            Console.WriteLine("start receiving UDP");
+            Debug.WriteLine("start receiving UDP");
         }
 
         private void StartReceiveUDPDataFromBroacast()
@@ -45,31 +46,31 @@ namespace SpectrumzerServer
                 byte[] buf = UDPrece.Receive(ref endpoint);
                 string msg = Encoding.UTF8.GetString(buf);
 
-                //Console.WriteLine(msg);
-                var json = JsonConvert.DeserializeObject<NetworkDiscoveryRequest>(msg);
-                if (json != null && IsVaidRequest(json))
+                Debug.WriteLine(msg);
+                var serverInfo = JsonConvert.DeserializeObject<ServerInfo>(msg);
+                if (serverInfo != null && IsVaidRequest(serverInfo))
                 {
-                    IPAddress peerIp = endpoint.Address;
-                    int peerPort = endpoint.Port;
-
-                    string ip = peerIp.ToString();
-                    Console.WriteLine("Network discovery request detected!, peer ip: " + ip +
-                    ", peerPort: " + peerPort);
-                    TCPConnectionManager.Instance.HandleServer(endpoint);
+                    string ip = serverInfo.server_ip;
+                    int tcp_port = serverInfo.server_tcp_port;
+                    //Debug.WriteLine("Network discovery request detected!, peer ip: " + ip +
+                    //", peerPort: " + peerPort);
+                    TCPConnectionManager.Instance.HandleServer(ip, tcp_port);
                 }
             }
         }
 
-        static private bool IsVaidRequest(NetworkDiscoveryRequest request)
+        static private bool IsVaidRequest(ServerInfo request)
         {
-            return request.req == "ndreq" && request.key == "dSgVkYp3";
+            return request.server_key == "dSgVkYp3";
         }
 
 
-        private class NetworkDiscoveryRequest
+        private class ServerInfo
         {
-            public string req;
-            public string key;
+            public String server_ip;
+            public int server_tcp_port;
+            public int server_udp_port;
+            public String server_key;
         }
     }
 }

@@ -9,7 +9,11 @@ public class TCPConnectionBinder extends Binder {
         this._service = _service;
     }
 
-    public void startListeningClient(int port){
+    public void startListeningClient(int port) {
         _service.startListeningClient(port);
+    }
+
+    public void stopListeningClient() {
+        _service.stopListeningClient();
     }
 }

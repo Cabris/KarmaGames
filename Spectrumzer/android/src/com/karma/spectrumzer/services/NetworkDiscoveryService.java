@@ -8,19 +8,25 @@ import android.net.wifi.WifiManager;
 import android.os.IBinder;
 import android.util.Log;
 
+import com.google.gson.Gson;
+import com.karma.spectrumzer.utility.ServerInfo;
+import com.karma.spectrumzer.utility.Utility;
+
 import java.io.IOException;
+import java.math.BigInteger;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.MulticastSocket;
 import java.net.SocketException;
 import java.net.UnknownHostException;
+import java.nio.ByteOrder;
 
 public class NetworkDiscoveryService extends Service {
     private static final String LOG_TAG = "Spectrumzer";
-    int DISCOVERY_PORT = 8080;
     private NetworkDiscoveryBinder _binder;
     private UDPBroadcast _udpThread = null;
+    private int _port = 0;
 
     @Override
     public void onCreate() {
@@ -49,14 +55,14 @@ public class NetworkDiscoveryService extends Service {
         return super.onUnbind(intent);
     }
 
-    public void startNetworkDiscovery() {
+    public void startNetworkDiscovery(int port) {
         Log.d(LOG_TAG, "NetworkDiscoveryService: startNetworkDiscovery");
-
+        _port = port;
         if (_udpThread != null) {
             _udpThread.interrupt();
             _udpThread = null;
         }
-        _udpThread = new UDPBroadcast(15);
+        _udpThread = new UDPBroadcast(1);
         _udpThread.start();
     }
 
@@ -100,23 +106,55 @@ public class NetworkDiscoveryService extends Service {
         }
 
         private void broadcast() {
-            Log.d(LOG_TAG, "NetworkDiscoveryService: UDPBroadcast: send UDP packet");
+            //Log.d(LOG_TAG, "NetworkDiscoveryService: UDPBroadcast: send UDP packet");
 
             try {
                 InetAddress localAddress = InetAddress.getLocalHost();
-                String data = "localAddress of android: " + localAddress.getHostAddress();
-                sendBroadcast(data);
+
+                ServerInfo serverInfo = new ServerInfo();
+                serverInfo.server_ip = getWifiIpAddress();
+                serverInfo.server_tcp_port = Utility.TCP_PORT;
+                serverInfo.server_udp_port = Utility.UDP_PORT;
+                serverInfo.server_key = Utility.KEY;
+
+                Gson gson = new Gson();
+                String json = gson.toJson(serverInfo);
+
+                sendBroadcast(json);
             } catch (Exception e) {
                 e.printStackTrace();
             }
         }
 
         void sendBroadcast(String data) throws Exception {
-            Log.d(LOG_TAG, "NetworkDiscoveryService: sendBroadcast: data: " + data);
+
+            //Log.d(LOG_TAG, "NetworkDiscoveryService: sendBroadcast: data: " + data);
             DatagramSocket socket = new DatagramSocket();
             socket.setBroadcast(true);
-            DatagramPacket packet = new DatagramPacket(data.getBytes(), data.length(), getBroadcastAddress(), DISCOVERY_PORT);
+            DatagramPacket packet = new DatagramPacket(data.getBytes(), data.length(), getBroadcastAddress(), _port);
             socket.send(packet);
+        }
+
+        protected String getWifiIpAddress() {
+            WifiManager wifiManager = (WifiManager) _binder.getAppContext().getApplicationContext().getSystemService(WIFI_SERVICE);
+            int ipAddress = wifiManager.getConnectionInfo().getIpAddress();
+
+            // Convert little-endian to big-endianif needed
+            if (ByteOrder.nativeOrder().equals(ByteOrder.LITTLE_ENDIAN)) {
+                ipAddress = Integer.reverseBytes(ipAddress);
+            }
+
+            byte[] ipByteArray = BigInteger.valueOf(ipAddress).toByteArray();
+
+            String ipAddressString;
+            try {
+                ipAddressString = InetAddress.getByAddress(ipByteArray).getHostAddress();
+            } catch (UnknownHostException ex) {
+                Log.e("WIFIIP", "Unable to get host address.");
+                ipAddressString = null;
+            }
+
+            return ipAddressString;
         }
 
         InetAddress getBroadcastAddress() throws IOException {
@@ -128,7 +166,7 @@ public class NetworkDiscoveryService extends Service {
             for (int k = 0; k < 4; k++)
                 quads[k] = (byte) ((broadcast >> k * 8) & 0xFF);
             InetAddress address = InetAddress.getByAddress(quads);
-            Log.d(LOG_TAG, "NetworkDiscoveryService: getBroadcastAddress: address: " + address.getHostAddress());
+            //Log.d(LOG_TAG, "NetworkDiscoveryService: getBroadcastAddress: address: " + address.getHostAddress());
             return address;
         }
 

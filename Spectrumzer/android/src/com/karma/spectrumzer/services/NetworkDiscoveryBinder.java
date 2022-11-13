@@ -31,8 +31,8 @@ public class NetworkDiscoveryBinder extends Binder {
         _service = service;
     }
 
-    public void startNetworkDiscovery() {
-        _service.startNetworkDiscovery();
+    public void startNetworkDiscovery(int port) {
+        _service.startNetworkDiscovery(port);
     }
 
     public void stopNetworkDiscovery() {

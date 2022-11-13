@@ -2,12 +2,10 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Linq;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
-using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 using System.Timers;
 
 namespace SpectrumzerServer
@@ -21,24 +19,20 @@ namespace SpectrumzerServer
             _TCPConnections = new Dictionary<string, TCPConnection>();
         }
 
-        internal void HandleServer(IPEndPoint endpoint)
+        internal void HandleServer(string peerIp, int peerPort)
         {
-            IPAddress peerIp = endpoint.Address;
-            int peerPort = endpoint.Port;
-
-            string ip = peerIp.ToString();
-            if (!_TCPConnections.ContainsKey(ip))
+            if (!_TCPConnections.ContainsKey(peerIp))
             {
-                TCPConnection connection = new TCPConnection(peerIp, peerPort);
+                TCPConnection connection = new TCPConnection(IPAddress.Parse(peerIp), peerPort);
                 Thread _TCPThread = new Thread(new ThreadStart(connection.Run));
                 _TCPThread.IsBackground = true;
                 _TCPThread.Start();
-                _TCPConnections.Add(ip, connection);
-                Console.WriteLine("start TCP connection with peer ip: " + ip);
+                _TCPConnections.Add(peerIp, connection);
+                Debug.WriteLine("start TCP connection with peer ip: " + peerIp);
             }
             else
             {
-                Console.WriteLine("TCP connection with peer ip: " + ip + " already existed, skip.");
+                //Debug.WriteLine("TCP connection with peer ip: " + peerIp + " already existed, skip.");
             }
         }
     }
@@ -51,7 +45,7 @@ namespace SpectrumzerServer
         int _heartBeatInterval = 10;
         int _heartBeatTimeout = 15;
         public CancellationTokenSource Cancellation { get; private set; }
-        ConcurrentQueue<byte[]> _tcpSendQueue;
+        //ConcurrentQueue<byte[]> _tcpSendQueue;
         public TCPConnection(IPAddress peerIp, int peerPort)
         {
             _peerIp = peerIp;
@@ -60,96 +54,84 @@ namespace SpectrumzerServer
 
         public void Run()//run in thread
         {
-            _tcpSendQueue = new ConcurrentQueue<byte[]>();
+            //_tcpSendQueue = new ConcurrentQueue<byte[]>();
             Cancellation = new CancellationTokenSource();
-            CancellationTokenSource sendTcpframes = null;
-            CancellationTokenSource receiveTcpframes = null;
+            //CancellationTokenSource sendTcpframes = null;
+            //CancellationTokenSource receiveTcpframes = null;
 
             System.Timers.Timer heartBeatTimer = null;
             try
             {
                 StartTCPConnection(_peerIp, _peerPort);//block
                 heartBeatTimer = StartHeartBeat();
-                sendTcpframes = StartSendTcpFrames();
-                receiveTcpframes = StartReceiveTcpFrames();
+                //sendTcpframes = StartSendTcpFrames();
+                //receiveTcpframes = StartReceiveTcpFrames();
                 var token = Cancellation.Token;
-                while (true)
-                {
-                    token.ThrowIfCancellationRequested();
-                }
-            }
-            catch (OperationCanceledException e)
-            {
-                Console.WriteLine("Start TCP Connection: CancellationRequested");
-                Console.WriteLine(e.Message);
+                HandleReadFromServer(token);
             }
             catch (Exception e)
             {
-                Console.WriteLine(e.Message);
+                Debug.WriteLine(e.Message);
             }
             finally
             {
-                sendTcpframes?.Cancel();
-                receiveTcpframes?.Cancel();
+                //sendTcpframes?.Cancel();
+                //receiveTcpframes?.Cancel();
                 heartBeatTimer?.Stop();
                 heartBeatTimer?.Dispose();
             }
         }
 
-        private CancellationTokenSource StartReceiveTcpFrames()
+        private void HandleReadFromServer(CancellationToken token)
         {
-            CancellationTokenSource tokenSource = new CancellationTokenSource();
-            CancellationToken token = tokenSource.Token;
-            void ReceiveTcpFrames()
+            while (true)
             {
-                NetworkStream ns = _tcpClient.GetStream();
-                while (true)//keep reading from server
-                {
-                    //read 4 byte of total frame size(int)
-                    int lenToRead = 4;
-                    byte[] sizeBytes = new byte[lenToRead];
-                    ReadBufferFromStream(ns, sizeBytes, 0, lenToRead);
+                token.ThrowIfCancellationRequested();
 
-                    int frameSize = BitConverter.ToInt32(sizeBytes, 0);
-                    Console.WriteLine("Start TCP Connection: StartReceiveTcpFrames: frameSize: " + frameSize);
+                string msg = ReadUTF8StringFromServer();
+                Debug.WriteLine("Start TCP Connection: HandleReadFromServer: " + msg);
 
-                    byte[] frameBytes = new byte[frameSize - 4];
-                    ReadBufferFromStream(ns, frameBytes, 0, frameBytes.Length);
-                    Console.WriteLine("Start TCP Connection: StartReceiveTcpFrames: frameBytes.Length: " + frameBytes.Length);
 
-                    FrameData frameData = FrameData.FromByteArray(frameBytes);
-                    Console.WriteLine("Start TCP Connection: StartReceiveTcpFrames: _presentationTimeStamp: " + frameData._presentationTimeStamp);
+                //String CONNECTED = "CONNECTED: " + DateTimeOffset.Now.ToUnixTimeMilliseconds();
+                //NetworkStream ns = _tcpClient.GetStream();
 
-                    if (token.IsCancellationRequested)
-                    {
-                        Console.WriteLine("Start TCP Connection: StartReceiveTcpFrames: CancellationRequested");
-                        break;
-                    }
-                }
+
+                //Loon.Java.DataOutputStream dataOutputStream = new Loon.Java.DataOutputStream(ns);
+                //dataOutputStream.WriteUTF(CONNECTED);
             }
-
-            Thread t = new Thread(new ThreadStart(ReceiveTcpFrames));
-            t.IsBackground = true;
-            t.Start();
-            return tokenSource;
-        }
-
-        private void ReadBufferFromStream(NetworkStream src, byte[] dst, int offset, int len)
-        {
-            int totalReaded = 0;
-            do
-            {
-                int readed = src.Read(dst, offset, len - totalReaded);
-                totalReaded += readed;
-            } while (totalReaded < len);
         }
 
         private void StartTCPConnection(IPAddress peerAddress, int peerPort)
         {
-            Console.WriteLine("Start TCP Connection: peerAddress: " + peerAddress.ToString() + ", peerPort: " + peerPort);
+            Debug.WriteLine("Start TCP Connection: peerAddress: " + peerAddress.ToString() + ", peerPort: " + peerPort);
             IPEndPoint ipe = new IPEndPoint(peerAddress, peerPort);
             //try start connection to peer...
             TryCreateTcpConnection(ipe);//block
+
+            string msg = ReadUTF8StringFromServer();
+            if (msg != Utility.CONNECTED)
+            {
+                throw new Exception("Server not response normal when connected.");
+            }
+            Debug.WriteLine("Start TCP Connection: Connection completed!");
+
+        }
+
+        string ReadUTF8StringFromServer()
+        {
+            NetworkStream ns = _tcpClient.GetStream();
+            Loon.Java.DataInputStream dataInputStream = new Loon.Java.DataInputStream(ns);
+            string msg = dataInputStream.ReadUTF();
+            Debug.WriteLine(string.Format("Server said: {0}", msg));
+            return msg;
+        }
+
+        void WriteUTF8StringToServer(string msg)
+        {
+            NetworkStream ns = _tcpClient.GetStream();
+            Loon.Java.DataOutputStream dataOutputStream = new Loon.Java.DataOutputStream(ns);
+            dataOutputStream.WriteUTF(msg);
+            Debug.WriteLine(string.Format("Client said: {0}", msg));
         }
 
         private void TryCreateTcpConnection(IPEndPoint ipe)
@@ -160,7 +142,7 @@ namespace SpectrumzerServer
                 bool retryCreateConnection = true;
                 while (retryCreateConnection)
                 {
-                    Console.WriteLine(string.Format("Try to connect to peer {0}", ipe.Address.ToString()));
+                    Debug.WriteLine(string.Format("Try to connect to peer {0}", ipe.Address.ToString()));
                     _tcpClient.Connect(ipe);//block util connected or error
                     if (_tcpClient.Connected) //connected!
                     {
@@ -168,14 +150,17 @@ namespace SpectrumzerServer
                     }
                     else
                     {
-                        Console.WriteLine(string.Format("TCP Connection to peer {0} failed, retry.", ipe.Address.ToString()));
+                        Debug.WriteLine(string.Format("TCP Connection to peer {0} failed, retry.", ipe.Address.ToString()));
                         continue;
                     }
                 }
+
+
+
             }
             catch (Exception e)
             {
-                Console.WriteLine(e.Message);
+                Debug.WriteLine(e.Message);
                 if (_tcpClient != null)
                     _tcpClient.Close();
                 throw e;
@@ -184,33 +169,6 @@ namespace SpectrumzerServer
             {
 
             }
-        }
-
-        private CancellationTokenSource StartSendTcpFrames()
-        {
-            CancellationTokenSource tokenSource = new CancellationTokenSource();
-            CancellationToken token = tokenSource.Token;
-
-            void SendTcpFrames()
-            {
-                NetworkStream ns = _tcpClient.GetStream();
-                while (true)
-                {
-                    if (_tcpSendQueue.TryDequeue(out byte[] frameBytes))
-                    {
-                        ns.Write(frameBytes, 0, frameBytes.Length);
-                    }
-                    if (token.IsCancellationRequested)
-                    {
-                        Console.WriteLine("Start TCP Connection: StartSendTcpFrames: CancellationRequested");
-                        break;
-                    }
-                }
-            }
-            Thread t = new Thread(new ThreadStart(SendTcpFrames));
-            t.IsBackground = true;
-            t.Start();
-            return tokenSource;
         }
 
         private System.Timers.Timer StartHeartBeat()
@@ -241,7 +199,7 @@ namespace SpectrumzerServer
                 _data = FrameData.JsonStringToBytes(msg)
             };
             byte[] frameBytes = frame.ToByteArray();
-            _tcpSendQueue.Enqueue(frameBytes);
+            //_tcpSendQueue.Enqueue(frameBytes);
         }
 
         private class ClientHeartBeat
@@ -250,6 +208,84 @@ namespace SpectrumzerServer
             public int client_port;
             public int timeout;
         }
+
+        /*
+        private CancellationTokenSource StartReceiveTcpFrames()
+        {
+            CancellationTokenSource tokenSource = new CancellationTokenSource();
+            CancellationToken token = tokenSource.Token;
+            void ReceiveTcpFrames()
+            {
+                NetworkStream ns = _tcpClient.GetStream();
+                while (true)//keep reading from server
+                {
+                    //read 4 byte of total frame size(int)
+                    int lenToRead = 4;
+                    byte[] sizeBytes = new byte[lenToRead];
+                    ReadBufferFromStream(ns, sizeBytes, 0, lenToRead);
+
+                    int frameSize = BitConverter.ToInt32(sizeBytes, 0);
+                    Debug.WriteLine("Start TCP Connection: StartReceiveTcpFrames: frameSize: " + frameSize);
+
+                    byte[] frameBytes = new byte[frameSize - 4];
+                    ReadBufferFromStream(ns, frameBytes, 0, frameBytes.Length);
+                    Debug.WriteLine("Start TCP Connection: StartReceiveTcpFrames: frameBytes.Length: " + frameBytes.Length);
+
+                    FrameData frameData = FrameData.FromByteArray(frameBytes);
+                    Debug.WriteLine("Start TCP Connection: StartReceiveTcpFrames: _presentationTimeStamp: " + frameData._presentationTimeStamp);
+
+                    if (token.IsCancellationRequested)
+                    {
+                        Debug.WriteLine("Start TCP Connection: StartReceiveTcpFrames: CancellationRequested");
+                        break;
+                    }
+                }
+            }
+
+            Thread t = new Thread(new ThreadStart(ReceiveTcpFrames));
+            t.IsBackground = true;
+            t.Start();
+            return tokenSource;
+        }
+
+        private void ReadBufferFromStream(NetworkStream src, byte[] dst, int offset, int len)
+        {
+            int totalReaded = 0;
+            do
+            {
+                int readed = src.Read(dst, offset, len - totalReaded);
+                totalReaded += readed;
+            } while (totalReaded < len);
+        }
+
+        private CancellationTokenSource StartSendTcpFrames()
+        {
+            CancellationTokenSource tokenSource = new CancellationTokenSource();
+            CancellationToken token = tokenSource.Token;
+
+            void SendTcpFrames()
+            {
+                NetworkStream ns = _tcpClient.GetStream();
+                while (true)
+                {
+                    if (_tcpSendQueue.TryDequeue(out byte[] frameBytes))
+                    {
+                        ns.Write(frameBytes, 0, frameBytes.Length);
+                    }
+                    if (token.IsCancellationRequested)
+                    {
+                        Debug.WriteLine("Start TCP Connection: StartSendTcpFrames: CancellationRequested");
+                        break;
+                    }
+                }
+            }
+            Thread t = new Thread(new ThreadStart(SendTcpFrames));
+            t.IsBackground = true;
+            t.Start();
+            return tokenSource;
+        }
+        */
+
     }
 
 }
